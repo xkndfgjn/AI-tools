@@ -1,0 +1,14 @@
+{
+  "id":"pdf-analyzer-skill",
+  "name":"PDF‑Analyzer‑Skill",
+  "version":"0.2.0",
+  "description":"PDF解析插件，提取文本/OCR/摘要/关键词搜索；",
+  "author":"liupeng",
+  "runtime":{
+    "preload":"python install.py"
+  },
+  "permissions":[
+    "shell",
+    "file:read"
+  ]
+}

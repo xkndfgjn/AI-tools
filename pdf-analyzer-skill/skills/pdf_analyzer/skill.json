@@ -1,0 +1,66 @@
+{
+  "name": "pdf_analyzer",
+  "description": "PDF解析：提取文本/OCR/摘要",
+  "tools": [
+    {
+      "name": "pdf_txt",
+      "description": "提取PDF文本",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fp": {
+            "type": "string",
+            "description": "pdf绝对路径"
+          },
+          "pr": {
+            "type": "string",
+            "description": "页码1‑3"
+          },
+          "ocr": {
+            "type": "boolean",
+            "description": "扫描件OCR"
+          }
+        },
+        "required": ["fp"]
+      },
+      "hanako": {
+        "invoke": {
+          "shell": [
+            "python",
+            "{{plugin_runtime}}/proxy.py",
+            "pdf_txt",
+            "{{{json(args)}}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "pdf_sum",
+      "description": "PDF摘要",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fp": {
+            "type": "string",
+            "description": "pdf路径"
+          },
+          "len": {
+            "type": "integer",
+            "description": "摘要长度"
+          }
+        },
+        "required": ["fp"]
+      },
+      "hanako": {
+        "invoke": {
+          "shell": [
+            "python",
+            "{{plugin_runtime}}/proxy.py",
+            "pdf_sum",
+            "{{{json(args)}}}"
+          ]
+        }
+      }
+    }
+  ]
+}
