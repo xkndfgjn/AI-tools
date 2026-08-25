@@ -36,6 +36,9 @@ TOOL_MAP: dict[str, dict[str, Any]] = {
     "pdf_sum": {
         "mcp_tool": "pdf_summarize",
     },
+    "pdf_search": {
+        "mcp_tool": "pdf_search_keywords",
+    },
 }
 
 
@@ -105,6 +108,19 @@ def _build_mcp_arguments(tool_name: str, args: dict[str, Any]) -> dict[str, Any]
                 mcp_args["length"] = int(length)
             except (TypeError, ValueError):
                 pass
+        return mcp_args
+
+    if tool_name == "pdf_search":
+        mcp_args = {"file_path": args.get("fp", "")}
+        kw = args.get("kw")
+        if not kw:
+            raise ValueError("缺少搜索关键词参数 kw")
+        mcp_args["keywords"] = kw
+        pr = args.get("pr")
+        if pr:
+            start, end = _parse_pr(pr)
+            mcp_args["page_start"] = start
+            mcp_args["page_end"] = end
         return mcp_args
 
     raise ValueError(f"未知工具：{tool_name}")

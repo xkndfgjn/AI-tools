@@ -9,3 +9,5 @@ tools:
     mcp_tool: pdf_extract_text
   pdf_sum:
     mcp_tool: pdf_summarize
+  pdf_search:
+    mcp_tool: pdf_search_keywords

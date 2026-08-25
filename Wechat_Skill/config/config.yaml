@@ -1,0 +1,30 @@
+server:
+  host: "127.0.0.1"
+  port: 9420
+
+wechat:
+  window_name: "微信"
+  process_name: "Weixin"
+  version: "4.1.x"
+
+rpa:
+  screenshot_dir: "./data/screenshots"
+  template_dir: "./config/templates"
+  ocr_languages: ["ch_sim", "en"]
+  ocr_gpu: false
+  template_threshold: 0.8
+  action_delay_ms: 300
+  retry:
+    max_attempts: 3
+    backoff: 1.0
+
+finder:
+  strategy_chain:
+    - template_match
+    - ocr
+    # - ai_vision
+
+logging:
+  level: "INFO"
+  file: "./data/logs/wechat_rpa.log"
+  rotation: "10 MB"

@@ -1,6 +1,6 @@
 {
   "name": "pdf_analyzer",
-  "description": "PDF解析：提取文本/OCR/摘要",
+  "description": "PDF解析：提取文本/OCR/摘要/关键词搜索",
   "instructions": "这是一个 PDF 分析技能包。主要用于处理 PDF 文本提取、OCR 识别、摘要生成和相关分析任务。项目结构包含 plugin 配置、安装脚本、构建脚本、运行时服务和 MCP 服务器。使用时优先查看 plugin.json、build_min_skill.py、skills/pdf_analyzer/skill.json 和 runtime 目录中的实现。",
   "tools": [
     {
@@ -58,6 +58,38 @@
             "python",
             "{{plugin_runtime}}/proxy.py",
             "pdf_sum",
+            "{{{json(args)}}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "pdf_search",
+      "description": "在PDF中搜索关键词，返回命中页码和上下文片段",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fp": {
+            "type": "string",
+            "description": "pdf绝对路径"
+          },
+          "kw": {
+            "type": "string",
+            "description": "搜索关键词，多个用逗号分隔，如：hello,world"
+          },
+          "pr": {
+            "type": "string",
+            "description": "页码范围，如 1-3，可选"
+          }
+        },
+        "required": ["fp", "kw"]
+      },
+      "hanako": {
+        "invoke": {
+          "shell": [
+            "python",
+            "{{plugin_runtime}}/proxy.py",
+            "pdf_search",
             "{{{json(args)}}}"
           ]
         }

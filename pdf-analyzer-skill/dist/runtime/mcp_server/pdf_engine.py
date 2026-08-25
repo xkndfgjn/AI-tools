@@ -1,5 +1,6 @@
 import contextlib
 import io
+from typing import Any
 
 from mcp.server import MCPServer
 from mcp.types import TextContent
@@ -16,6 +17,7 @@ with (
     from tools.extract import pdf_extract_text as extract_text_impl
     from tools.metadata import pdf_get_metadata as get_metadata_impl
     from tools.merge import pdf_merge as merge_impl
+    from tools.search import pdf_search_keywords as search_keywords_impl
     from tools.split import pdf_split as split_impl
     from tools.summarize import pdf_summarize as summarize_impl
 
@@ -55,6 +57,24 @@ async def pdf_split(file_path: str, output_file: str, page_start: int, page_end:
         page_end: 结束页码（包含）
     """
     return await split_impl(file_path, output_file, page_start, page_end)
+
+
+@app.tool()
+async def pdf_search_keywords(
+    file_path: str,
+    keywords: str | list[Any],
+    page_start: int = 0,
+    page_end: int = -1,
+) -> list[TextContent]:
+    """在PDF中搜索关键词，返回命中页码和上下文片段（大小写不敏感）
+
+    Args:
+        file_path: PDF本地绝对路径
+        keywords: 关键词，支持逗号分隔字符串或字符串数组
+        page_start: 起始页码，从0开始，默认0
+        page_end: 结束页码（包含），-1表示到最后一页，默认-1
+    """
+    return await search_keywords_impl(file_path, keywords, page_start=page_start, page_end=page_end)
 
 
 @app.tool()

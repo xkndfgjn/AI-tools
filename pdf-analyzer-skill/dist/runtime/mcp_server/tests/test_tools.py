@@ -6,6 +6,7 @@ import fitz
 
 from tools.extract import pdf_extract_text
 from tools.metadata import pdf_get_metadata
+from tools.search import pdf_search_keywords
 from tools.summarize import pdf_summarize
 
 
@@ -35,6 +36,24 @@ class ToolModuleTests(unittest.TestCase):
         result = __import__("asyncio").run(pdf_summarize(str(self.pdf_path), length=80))
         text = result[0].text
         self.assertIn("Hello PDF tool test", text)
+
+    def test_search_hit(self):
+        result = __import__("asyncio").run(pdf_search_keywords(str(self.pdf_path), "hello"))
+        text = result[0].text
+        self.assertIn("Hello PDF tool test", text)
+        self.assertIn("匹配#1", text)
+
+    def test_search_multi_keywords(self):
+        result = __import__("asyncio").run(
+            pdf_search_keywords(str(self.pdf_path), "hello,missing")
+        )
+        text = result[0].text
+        self.assertIn("Hello PDF tool test", text)
+
+    def test_search_no_match(self):
+        result = __import__("asyncio").run(pdf_search_keywords(str(self.pdf_path), "nothing"))
+        text = result[0].text
+        self.assertIn("未找到关键词", text)
 
 
 if __name__ == "__main__":

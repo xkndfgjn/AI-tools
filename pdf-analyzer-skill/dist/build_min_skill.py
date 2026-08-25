@@ -30,6 +30,7 @@ INCLUDED_TOP_LEVEL = {
     "plugin.json",
     "install.py",
     "build_min_skill.py",
+    "SKILL.md",
 }
 
 

@@ -1,0 +1,3 @@
+# Place OpenCV template images here (search button icon, send button icon, etc.)
+# Supported formats: .png .jpg .bmp
+# Referenced in code as config["rpa"]["template_dir"]
