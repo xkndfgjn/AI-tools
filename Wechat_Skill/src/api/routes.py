@@ -37,10 +37,28 @@ def init_routes(engine, config, logger):
 @router.get("/health", response_model=HealthResponse)
 async def health():
     """Check service and WeChat window status."""
-    # TODO: check if WeChat window is accessible via controller
+    wechat_running = False
+    window_rect = None
+    wechat_window = None
+
+    if _engine and _engine.controller:
+        try:
+            hwnd = await asyncio.to_thread(_engine.controller.find_wechat_window)
+            wechat_running = bool(hwnd)
+            if wechat_running:
+                wechat_window = f"HWND:{hwnd}"
+                rect = _engine.controller.get_window_rect()
+                if rect:
+                    window_rect = list(rect)
+        except Exception as e:
+            if _logger:
+                _logger.debug(f"health check controller error: {e}")
+
     return HealthResponse(
         status="ok",
-        wechat_running=False,  # TODO: real check
+        wechat_running=wechat_running,
+        wechat_window=wechat_window,
+        window_rect=window_rect,
         operations_count=len(__import__("src.operations.registry", fromlist=["OperationRegistry"]).OperationRegistry.list_all()),
     )
 
@@ -57,34 +75,52 @@ async def list_operations():
 
 @router.post("/api/execute", response_model=ExecuteResponse)
 async def execute_operation(req: ExecuteRequest):
-    """Execute a WeChat operation.
-
-    1. Look up operation class by name from registry
-    2. Create operation instance
-    3. Run through the lifecycle (pre_hook -> execute -> post_hook)
-    4. Return result
-    """
+    """Execute a WeChat operation."""
     from ..operations.registry import OperationRegistry
 
     op_class = OperationRegistry.get(req.operation)
     if op_class is None:
         raise HTTPException(status_code=404, detail=f"Operation '{req.operation}' not found")
 
-    # TODO: create OperationContext with real controller/finder/config/logger
-    # TODO: run operation via _engine.execute(op_class, ctx, req.params)
-    # TODO: catch exceptions, return ExecuteResponse with FAILED status
+    if _engine is None or _engine.controller is None:
+        return ExecuteResponse(
+            status="failed",
+            message="RPA engine not initialized",
+        )
 
-    return ExecuteResponse(
-        status="failed",
-        message="Not implemented yet - engine wiring pending",
-    )
+    try:
+        result = await _engine.execute(op_class, req.params)
+        return ExecuteResponse(
+            status=result.status.value,
+            data=result.data,
+            message=result.message,
+            screenshots=result.screenshots,
+            duration_ms=result.duration_ms,
+        )
+    except Exception as e:
+        if _logger:
+            _logger.exception("execute_operation failed")
+        return ExecuteResponse(
+            status="failed",
+            message=str(e),
+        )
 
 
 @router.get("/api/screenshot")
 async def screenshot():
     """Capture and return the current WeChat window as PNG."""
-    # TODO: _engine.controller.screenshot() -> encode as PNG -> StreamingResponse
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    if _engine is None or _engine.controller is None:
+        raise HTTPException(status_code=503, detail="RPA engine not initialized")
+
+    try:
+        img = await asyncio.to_thread(_engine.controller.screenshot)
+        from ..rpa.screenshot import ScreenshotUtil
+        path = _engine.controller.save_screenshot(image=img)
+        with open(path, "rb") as f:
+            data = f.read()
+        return StreamingResponse(io.BytesIO(data), media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Screenshot failed: {e}")
 
 
 @router.post("/api/screenshot/analyze")
@@ -96,3 +132,53 @@ async def analyze_screenshot(req: ScreenshotAnalyzeRequest):
     # 3. Send to LLM with req.prompt
     # 4. Return analysis text
     raise HTTPException(status_code=501, detail="Not implemented yet")
+
+
+@router.get("/api/debug/control_tree")
+async def debug_control_tree(
+    name: Optional[str] = None,
+    control_type: Optional[str] = None,
+    depth: int = 3,
+):
+    """Dump the WeChat control tree for calibration.
+
+    Useful for verifying whether uiautomation can see WeChat controls.
+    """
+    if _engine is None or _engine.controller is None:
+        raise HTTPException(status_code=503, detail="RPA engine not initialized")
+
+    infos = await asyncio.to_thread(
+        _engine.controller.find_controls_info,
+        name=name or None,
+        control_type=control_type or None,
+        depth=depth,
+    )
+    return {
+        "count": len(infos),
+        "window_rect": _engine.controller.get_window_rect(),
+        "controls": infos[:200],  # cap to avoid huge responses
+    }
+
+
+@router.get("/api/debug/ocr")
+async def debug_ocr():
+    """Full-window OCR dump - calibrate search/region params with this.
+
+    On Qt WeChat the control tree is empty, so this is the primary way to
+    see what the OCR engine recognizes and where. Tip: trigger Ctrl+F +
+    type a name in WeChat, then call this endpoint to tune config['search'].
+    """
+    if _engine is None or _engine.controller is None:
+        raise HTTPException(status_code=503, detail="RPA engine not initialized")
+    try:
+        img = await asyncio.to_thread(_engine.controller.screenshot)
+        from ..rpa.ocr_engine import OcrEngine
+        items = await asyncio.to_thread(OcrEngine.get(_config).extract, img)
+        rect = _engine.controller.get_window_rect()
+        return {
+            "count": len(items),
+            "window_rect": list(rect) if rect else None,
+            "items": items[:300],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR failed: {e}")

@@ -75,24 +75,38 @@ class OperationEngine:
         self._lock = asyncio.Lock()  # serial execution (WeChat has 1 window)
 
     async def initialize(self):
-        """Initialize RPA engine components. Called at app startup.
+        """Initialize RPA engine components. Called at app startup."""
+        from src.rpa.controller import RpaController
+        from src.rpa.finder import ElementFinder
+        from src.rpa.watcher import WindowWatcher
 
-        Scaffold stage: the RPA engine (controller/finder/watcher) is not
-        implemented yet. Instead of crashing startup, we log a warning and
-        run in a degraded, API-only mode.
-        """
-        # TODO: wire up the engine once implemented:
-        # from src.rpa.controller import RpaController
-        # self.controller = RpaController(self.config)
-        # from src.rpa.finder import ElementFinder
-        # self.finder = ElementFinder.from_config(self.config)
-        # from src.rpa.watcher import WindowWatcher
-        # self.watcher = WindowWatcher(self.controller, self.config, self.logger)
-        # asyncio.create_task(self.watcher.start())
-        self.logger.warning(
-            "RPA engine not wired yet (controller/finder/watcher are stubs). "
-            "Starting in degraded API-only mode."
-        )
+        self.controller = RpaController(self.config)
+        self.finder = ElementFinder.from_config(self.config, controller=self.controller)
+        self.watcher = WindowWatcher(self.controller, self.config, self.logger)
+        asyncio.create_task(self.watcher.start())
+
+        # Try to locate WeChat once at startup so /health can report status.
+        # Wrapped with a timeout: a slow/hung UIAutomation call must never
+        # block the service from starting. Operations do their own window
+        # lookup, so a failed startup probe is non-fatal.
+        try:
+            found = await asyncio.wait_for(
+                asyncio.to_thread(self.controller.find_wechat_window),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            found = None
+            self.logger.warning("WeChat window lookup timed out at startup; continuing")
+        except Exception as e:
+            found = None
+            self.logger.warning(f"WeChat window lookup failed at startup: {e}; continuing")
+        if not found:
+            self.logger.warning(
+                "WeChat window not found at startup. Service is running but "
+                "operations will fail until WeChat is opened."
+            )
+        else:
+            self.logger.info(f"WeChat window found: HWND {found}")
 
     async def execute(self, op_class, params: dict):
         """Execute an operation with the serial lock.

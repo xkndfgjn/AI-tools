@@ -1,6 +1,6 @@
 """Window Watcher - background health monitor for the WeChat window.
 
-Runs a periodic check (every N seconds) to verify:
+Runs a periodic check to verify:
 - WeChat process is alive
 - WeChat window is visible and responsive
 - Window is not stuck (optional: compare screenshots)
@@ -11,7 +11,7 @@ If recovery fails, sets a degraded flag so the API can report it.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 
 class WindowWatcher:
@@ -21,9 +21,10 @@ class WindowWatcher:
         self.controller = controller
         self.config = config
         self.logger = logger
-        self._check_interval = 10  # seconds
+        self._check_interval = config.get("watcher", {}).get("interval_seconds", 10)
         self._running = False
         self._degraded = False
+        self._last_hash: Optional[int] = None
         self._on_degraded: Optional[Callable] = None
 
     @property
@@ -47,22 +48,57 @@ class WindowWatcher:
         self._running = False
 
     async def _check_once(self):
-        """TODO: implement single health check.
+        """Single health check.
 
-        Steps:
-        1. Find WeChat window via controller.find_wechat_window()
-        2. If not found -> mark degraded, try recovery
-        3. If found -> try activate, take a quick screenshot to verify responsiveness
-        4. Compare with last screenshot (optional stuck-detection)
-        5. Update self._degraded flag
+        We do *not* activate the window during normal checks to avoid stealing
+        focus. Activation is only used during recovery.
         """
-        raise NotImplementedError
+        # Find window (sync) in thread pool to avoid blocking the event loop.
+        hwnd = await asyncio.to_thread(self.controller.find_wechat_window)
+        if not hwnd:
+            self._degraded = True
+            if self.logger:
+                self.logger.warning("Watcher: WeChat window not found")
+            await self._recover()
+            return
+
+        # Verify we can still get window geometry.
+        rect = await asyncio.to_thread(self.controller.get_window_rect)
+        if rect is None:
+            self._degraded = True
+            if self.logger:
+                self.logger.warning("Watcher: could not read WeChat window rect")
+            await self._recover()
+            return
+
+        self._degraded = False
 
     async def _recover(self):
-        """TODO: attempt to recover from a degraded state.
+        """Attempt to recover from a degraded state."""
+        try:
+            hwnd = await asyncio.to_thread(self.controller.find_wechat_window)
+            if hwnd:
+                await asyncio.to_thread(self.controller.activate_window)
+                if self.logger:
+                    self.logger.info("Watcher: recovered WeChat window")
+            else:
+                if self.logger:
+                    self.logger.warning("Watcher: recovery failed - WeChat not found")
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Watcher: recovery error: {e}")
 
-        - Re-find the WeChat window
-        - Re-activate it
-        - If process died, log and wait for user to restart WeChat
-        """
-        raise NotImplementedError
+    @staticmethod
+    def _image_hash(image) -> int:
+        """Fast coarse hash for stuck detection."""
+        try:
+            import numpy as np
+            # Resize to tiny thumbnail and compute mean per channel.
+            h, w = image.shape[:2]
+            if h > 16 and w > 16:
+                thumb = image[::max(1, h // 8), ::max(1, w // 8)]
+            else:
+                thumb = image
+            return int(np.mean(thumb))
+        except Exception:
+            return 0

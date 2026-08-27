@@ -1,21 +1,12 @@
-"""Send a file or image to a WeChat contact or group.
-
-Workflow:
-1. Activate WeChat window
-2. Open target chat (search + Enter)
-3. Send file via one of:
-   a. Drag-and-drop the file into the chat window (Win32 drag simulation)
-   b. Ctrl+Shift+F -> file picker dialog -> type path -> Enter
-4. Wait for file to finish uploading (optional)
-
-Parameters:
-    to (str): contact or group name
-    file_path (str): absolute path to the file/image
-"""
+"""Send a file or image to a WeChat contact or group."""
 from __future__ import annotations
+
+import asyncio
+import os
 
 from .base import BaseOperation, OperationContext, OperationResult, OperationStatus
 from .registry import register_operation
+from ._helpers import open_chat, sleep_ms
 
 
 @register_operation("send_file")
@@ -24,27 +15,45 @@ class SendFileOperation(BaseOperation):
     requires_confirmation = False
 
     async def execute(self, ctx: OperationContext, params: dict) -> OperationResult:
-        """TODO: implement send file workflow.
+        to = params.get("to")
+        file_path = params.get("file_path")
+        if not to:
+            return OperationResult(
+                status=OperationStatus.FAILED,
+                message="Missing parameter: to",
+            )
+        if not file_path:
+            return OperationResult(
+                status=OperationStatus.FAILED,
+                message="Missing parameter: file_path",
+            )
+        if not os.path.exists(file_path):
+            return OperationResult(
+                status=OperationStatus.FAILED,
+                message=f"File not found: {file_path}",
+            )
 
-        Preferred approach (Ctrl+Shift+F):
-        1. ctx.controller.activate_window()
-        2. Open target chat (search + Enter)
-        3. ctx.controller.press_keys('Ctrl', 'Shift', 'f')   # open file dialog
-        4. ctx.controller._delay()
-        5. ctx.controller.type_text(params['file_path'])       # type file path
-        6. ctx.controller.press_keys('Enter')                  # select file
-        7. ctx.controller.press_keys('Enter')                  # confirm send
+        ok, msg = await open_chat(ctx, to)
+        if not ok:
+            return OperationResult(status=OperationStatus.FAILED, message=msg)
 
-        Alternative (drag-and-drop):
-        1. Open target chat
-        2. Get window rect, calculate drop target (message input area center)
-        3. ctx.controller.drag(file_icon_x, file_icon_y, drop_x, drop_y)
-        - Requires the file to be visible on desktop/explorer first
+        # WeChat shortcut: Ctrl+Shift+F opens the file picker
+        await asyncio.to_thread(ctx.controller.press_keys, "Ctrl", "Shift", "f")
+        await sleep_ms(ctx, 800)
 
-        Notes:
-        - Verify file exists before attempting
-        - Large files may need upload wait time
-        """
-        raise NotImplementedError(
-            "Implement: open chat -> file dialog -> type path -> send"
+        await asyncio.to_thread(ctx.controller.type_text, os.path.abspath(file_path))
+        await sleep_ms(ctx, 400)
+
+        # Confirm file selection in the dialog
+        await asyncio.to_thread(ctx.controller.press_keys, "Enter")
+        await sleep_ms(ctx, 600)
+
+        # Confirm send (some WeChat versions need a second Enter)
+        await asyncio.to_thread(ctx.controller.press_keys, "Enter")
+        await sleep_ms(ctx, 500)
+
+        return OperationResult(
+            status=OperationStatus.SUCCESS,
+            data={"to": to, "file_path": file_path},
+            message=f"File sent to '{to}'",
         )

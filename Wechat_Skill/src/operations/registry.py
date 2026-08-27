@@ -10,7 +10,7 @@ Usage:
 """
 from __future__ import annotations
 
-from typing import Type, Dict
+from typing import Callable, Dict, Type
 
 from .base import BaseOperation
 
@@ -21,7 +21,9 @@ class OperationRegistry:
     _operations: Dict[str, Type[BaseOperation]] = {}
 
     @classmethod
-    def register(cls, name: str) -> callable:
+    def register(
+        cls, name: str
+    ) -> Callable[[Type[BaseOperation]], Type[BaseOperation]]:
         """Decorator to register an operation class.
 
         Args:

@@ -5,24 +5,48 @@ server:
 wechat:
   window_name: "微信"
   process_name: "Weixin"
+  class_name: "Qt51514QWindowIcon"
   version: "4.1.x"
+  # NOTE: Qt-rendered WeChat exposes NO UIAutomation control tree.
+  # All element location is vision-based (OCR + templates).
 
 rpa:
   screenshot_dir: "./data/screenshots"
   template_dir: "./config/templates"
-  ocr_languages: ["ch_sim", "en"]
-  ocr_gpu: false
+  ocr_engine: "rapidocr"      # was easyocr; RapidOCR (PP-OCRv6) ships Chinese+English by default
   template_threshold: 0.8
   action_delay_ms: 300
   retry:
     max_attempts: 3
     backoff: 1.0
 
+# Search-panel geometry, relative to the WeChat window.
+# Tuned for Qt WeChat 4.x; adjust if your layout differs.
+# After Ctrl+F + typing, results appear in a left strip below the search box.
+# Tip: trigger a search in WeChat, then GET /api/debug/ocr to calibrate.
+search:
+  box_height_px: 90          # skip top N px (the search input box lives here)
+  result_width_ratio: 0.40   # results occupy left 40% of window width
+  result_height_px: 600      # max height of the results strip
+  settle_ms: 1200            # wait for results to refresh after typing
+
+# Chat message OCR region, relative to the WeChat window.
+# Excludes the left session list, chat header, and bottom input box.
+chat_region:
+  left_ratio: 0.45
+  top_ratio: 0.12
+  right_ratio: 0.99
+  bottom_ratio: 0.79
+
 finder:
+  # Vision-first chain. control_tree is legacy (no-op on Qt WeChat) and off
+  # by default. ai_vision is a reserved interface - enable by configuring
+  # finder.ai_vision_* and implementing the call (see AIVisionStrategy).
   strategy_chain:
     - template_match
     - ocr
-    # - ai_vision
+    # - control_tree  # legacy: Qt WeChat exposes no control tree
+    # - ai_vision    # reserved interface, not implemented yet
 
 logging:
   level: "INFO"
