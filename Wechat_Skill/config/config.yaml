@@ -38,6 +38,21 @@ chat_region:
   right_ratio: 0.99
   bottom_ratio: 0.79
 
+# File button in the bottom chat toolbar, relative to the WeChat window.
+# Tuned for the current Qt WeChat 4.x layout.
+send_file:
+  file_button:
+    feature_model: "wechat_file_button_features.npz"
+    feature_ratio: 0.75
+    min_good_matches: 6
+    min_inliers: 6
+    roi_left_ratio: 0.35
+    roi_top_ratio: 0.86
+    roi_right_ratio: 0.75
+    roi_bottom_ratio: 0.99
+    x_ratio: 0.59
+    y_ratio: 0.95
+
 finder:
   # Vision-first chain. control_tree is legacy (no-op on Qt WeChat) and off
   # by default. ai_vision is a reserved interface - enable by configuring

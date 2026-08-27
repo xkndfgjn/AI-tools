@@ -174,7 +174,7 @@ class RpaController:
         return None
 
     def activate_window(self) -> bool:
-        """Bring WeChat to foreground. Returns True if successful."""
+        """Bring WeChat to foreground and verify the foreground HWND."""
         self._ensure_com()
         if not _UIA_AVAILABLE:
             return False
@@ -185,21 +185,29 @@ class RpaController:
 
         # Work around Windows foreground-lock by attaching thread inputs
         fg = self._user32.GetForegroundWindow()
+        cur_thread = 0
+        fg_thread = 0
         if fg:
             cur_thread = ctypes.windll.kernel32.GetCurrentThreadId()
             fg_thread = self._user32.GetWindowThreadProcessId(fg, None)
             if cur_thread != fg_thread:
                 self._user32.AttachThreadInput(cur_thread, fg_thread, True)
 
-        self._user32.ShowWindow(hwnd, SW_RESTORE)
-        self._user32.SetForegroundWindow(hwnd)
-
-        if fg and cur_thread != fg_thread:
-            self._user32.AttachThreadInput(cur_thread, fg_thread, False)
+        try:
+            for _ in range(3):
+                self._user32.ShowWindow(hwnd, SW_RESTORE)
+                self._user32.SetForegroundWindow(hwnd)
+                self._user32.BringWindowToTop(hwnd)
+                self._delay(200)
+                if self._user32.GetForegroundWindow() == hwnd:
+                    self._update_rect()
+                    return True
+        finally:
+            if fg and cur_thread != fg_thread:
+                self._user32.AttachThreadInput(cur_thread, fg_thread, False)
 
         self._update_rect()
-        self._delay(500)
-        return True
+        return False
 
     def get_window_rect(self) -> Optional[tuple[int, int, int, int]]:
         """Return (left, top, right, bottom) of the WeChat window in screen coords."""
@@ -399,6 +407,10 @@ class RpaController:
         self._delay(50)
         ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
         self._delay(100)
+
+    def move_to(self, x: int, y: int) -> None:
+        """Move the cursor to absolute screen coordinates without clicking."""
+        self._user32.SetCursorPos(x, y)
 
     def double_click(self, x: int, y: int) -> None:
         """Double left-click at (x, y)."""

@@ -2,7 +2,7 @@
 
 > 面向接手本项目的 AI / 开发者。读完本文即可上手继续开发，无需重新摸索。
 
-最后更新：2026-08-27 · 阶段：**open_chat / send_message 已端到端验证可用，read_messages 已实测可读**，其余操作待验证/改造。
+最后更新：2026-08-27 · 阶段：**open_chat / send_message / send_file 已端到端验证可用，read_messages 已实测可读；send_file 使用纯 SIFT 特征值匹配，已在调整窗口尺寸后向「文件传输助手」和「老妈」真实发送图片成功**，其余操作待验证/改造。
 
 ---
 
@@ -39,7 +39,7 @@ RPA 层    src/rpa/
          ├─ screenshot.py      截图/保存
          └─ watcher.py         窗口状态后台轮询
 配置     config/config.yaml     server / wechat / rpa / search / chat_region / finder / logging
-测试     tests/                 test_api.py(3) + test_open_chat.py(2) = 5 passed
+测试     tests/                 test_api.py(3) + test_open_chat.py(2) + test_send_file.py(3) = 8 passed
 ```
 
 ## 4. 运行
@@ -88,7 +88,7 @@ print(json.loads(urllib.request.urlopen(req, timeout=90).read().decode("utf-8"))
 | `open_chat` | ✅ **已验证可用** | 纯视觉流程，API 端到端测过打开「文件传输助手」聊天，OCR 标题确认。见 §7。 |
 | `send_message` | ✅ **已验证可用** | = `open_chat` + `type_text`(剪贴板粘贴) + `Enter`。已实际发送到「文件传输助手」和「老妈」，发送后的微信截图均显示绿色消息气泡。 |
 | `read_messages` | 🟡 **已实测但仍是半成品** | 已对「老妈」真实读取成功，能识别聊天消息；已通过 `chat_region.*` 排除左侧会话列表和底部输入框，但结果仍混入时间、聊天记录卡片和截断文本。 |
-| `send_file` | 🟡 待验证 | = `open_chat` + `Ctrl+Shift+F` + 路径 + Enter×2。`Ctrl+Shift+F` 是否仍是新版文件快捷键**未验证**。 |
+| `send_file` | ✅ **纯特征值匹配，已端到端验证** | 先恢复并确认微信前台，再从当前窗口截图底部工具栏 ROI 中加载 `config/templates/wechat_file_button_features.npz` 的 SIFT 特征值，使用 BFMatcher/KNN 比率筛选和 RANSAC 单应性计算按钮中心，再将窗口局部坐标转换为屏幕绝对坐标点击。完全不使用 OCR 或固定比例兜底；特征匹配失败直接停止，避免把路径发成文字。已在窗口尺寸调整后向「文件传输助手」和「老妈」发送 JPG 成功。 |
 | `list_sessions` | 🟡 半成品 | 先试控件树(Qt 必空)再 OCR 左侧栏。OCR 能列出会话名但混入时间/预览噪声，无解析去噪。 |
 
 ## 7. open_chat 核心流程（已验证，改它要懂这套）
@@ -178,7 +178,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 
 2. **发送后的结果校验**：当前 `send_message` 的 success 表示动作链执行完成；如需更强保证，可在后截图中 OCR 校验刚发送的文本或消息气泡。
 
-3. **`send_file` 验证 `Ctrl+Shift+F`**：手动试这个快捷键是否打开文件选择框，不行就改用点击"+"菜单的文件入口（需 OCR 找入口）。
+3. **`send_file` 已完成端到端实测**：当前使用 `config/templates/wechat_file_button_features.npz` 做纯 SIFT 特征值匹配。特征库只保存关键点、描述子、按钮中心和尺寸，不保存原始图片；窗口尺寸调整后已实测仍可定位并发送。测试文件为 `C:\Users\21477\OneDrive\Desktop\36af47c7219c21fbc346d0d23bfd66d6.jpg`。
 
 4. **`list_sessions` 去噪解析**：会话项是「头像+名字+时间+预览」多行，需把每项的几行聚类成一条会话（按 y 间距分组），只取名字行。
 
@@ -187,13 +187,14 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 ## 12. 已知坑 & 约束
 
 - **Windows bash 中文**：见 §5，curl 不可用，用 Python urllib。
-- **坐标**：OCR 坐标都是**图像局部**，点击前务必换算成屏幕绝对（窗口左上 + ROI 偏移 + OCR 中心）。换算错就点错地方。
+- **坐标**：模板匹配返回的是窗口截图内的局部坐标，点击前务必换算成屏幕绝对（窗口左上 + ROI 偏移 + 模板中心）。换算错就点错地方。
 - **窗口可被移动**：每次操作前 `activate_window` + `get_window_rect` 重新拿坐标，别缓存 rect。
 - **首次 OCR 慢**：模型首次加载 1–2s，API 超时给足（urllib `timeout=90`）。
-- **控件树不可用**：别再指望 `find_control`，一切走 OCR/坐标。
+- **控件树不可用**：别再指望 `find_control`；`open_chat` 等动态文本操作仍走 OCR，但 `send_file` 文件图标完全走模板匹配，不走 OCR。
+- **send_file 特征匹配**：特征库位于 `config/templates/wechat_file_button_features.npz`，只保存 SIFT 特征值，不保存原始图像。截图 ROI 使用窗口相对比例，匹配点通过 RANSAC 单应性变换计算按钮中心，点击前必须加上窗口左上角转换为屏幕绝对坐标。特征匹配不到时必须失败，不能回退到猜测坐标。
 - **搜索候选排序**：见 §7，联想项在联系人上方，必须「精确/最短优先」而非「最靠上」。
 - **Ctrl+F 假设**：open_chat 假设 Ctrl+F 是搜索快捷键，已在当前版本验证可用；微信改键位时这里会断。
-- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；改 open_chat 选择策略后跑 `pytest tests/ -q` 应 5 passed。
+- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；`test_send_file.py` 覆盖特征匹配坐标和模型缺失保护。当前跑 `pytest tests/ -q` 应 8 passed。
 
 ## 13. 30 秒自检（接手后第一步）
 

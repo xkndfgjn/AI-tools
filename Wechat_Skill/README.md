@@ -20,7 +20,7 @@ curl http://127.0.0.1:9420/health
 
 ## 文档
 
-完整架构设计见 [ARCHITECTURE.md](./ARCHITECTURE.md)
+完整架构设计见 [HANDOFF.md](./HANDOFF.md)
 
 ## 技术路线
 
