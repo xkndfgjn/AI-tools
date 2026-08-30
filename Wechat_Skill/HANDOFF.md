@@ -23,7 +23,7 @@
 
 ```
 HTTP 层   src/api/routes.py     /health /api/execute /api/operations /api/screenshot /api/debug/ocr ...
-MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManager（agent 对外工具入口；call() 唯一公开 API，call_tool() 故意 raise 强制走 facade；_DefaultMcpTransport no-op，测试用 FakeTransport。当前仅骨架，未与 operations 打通）
+MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManager（agent 对外工具入口；call() 唯一公开 API，call_tool() 故意 raise 强制走 facade；OperationEngineTransport 桥接到真实 OperationEngine，6 个 operation 注册为 tool；_DefaultMcpTransport no-op，测试用 FakeTransport）
 引擎层   src/main.py           OperationEngine: 加载 config / 初始化 controller+finder+watcher / 串行锁执行
 操作层   src/operations/        每个 operation = 一个类 + @register_operation，自动发现
          ├─ contacts.py        open_chat, list_sessions
@@ -81,7 +81,7 @@ req = urllib.request.Request(
 print(json.loads(urllib.request.urlopen(req, timeout=90).read().decode("utf-8")))
 ```
 
-发送文字消息时，将请求参数改为 `{"operation":"send_message","params":{"to":"老妈","text":"发送消息测试"}}`。真实发送前必须确认联系人和消息内容；返回 `status: "success"` 后，应检查 `screenshots[-1]` 是否出现绿色消息气泡。
+发送文字消息时，将请求参数改为 `{"operation":"send_message","params":{"to":"老妈","text":"发送消息测试"}}`。真实发送前必须确认联系人和消息内容。**注意**：默认 `audit_screenshot=on_fail`，成功返回时 `screenshots` 为空（不再落盘）；如需肉眼校验发送结果，用 `GET /api/screenshot` 现拍一张，或调 `GET /api/debug/ocr` 看是否出现绿色气泡文本。
 
 群发：`{"operation":"broadcast_message","params":{"targets":["老妈","文件传输助手"],"text":"群发测试"}}`。默认每条间隔 ~500-800ms 防风控（`interval_ms=0` 可关）；结果 `data` 含 `sent`/`failed` 列表与 `partial` 标志。
 
@@ -181,7 +181,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 |---|---|
 | `GET /health` | 服务+微信窗口状态 |
 | `GET /api/operations` | 列出已注册操作 |
-| `POST /api/execute` | 执行操作：`{"operation":"...","params":{...}}`，返回含 `screenshots`(前后截图路径)、`duration_ms` |
+| `POST /api/execute` | 执行操作：`{"operation":"...","params":{...}}`，返回含 `screenshots`（按 audit 策略：`on_fail` 默认仅失败时有路径，成功为空）、`duration_ms` |
 | `GET /api/screenshot` | 当前微信窗口 PNG |
 | `POST /api/screenshot/analyze` | AI 视觉分析（501 未实现） |
 | `GET /api/debug/control_tree` | 控件树 dump（Qt 微信返回空，基本无用） |
@@ -193,7 +193,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 
 ## 11. 待办优先级（建议顺序）
 
-> **当前未完成**：§11.2 `broadcast_message` 真机多目标端到端验证、§11.3 `send_message` 发送后结果校验。其余均已完成（§11.6 finder docstring 清理、§11.7 mcp facade 桥接均已完成）。
+> **当前未完成**：§11.2 `broadcast_message` 真机多目标端到端验证、§11.3 `send_message` 发送后结果校验。其余均已完成（§11.6 finder docstring 清理、§11.7 mcp facade 桥接、§11.8 审计截图策略优化均已完成）。
 
 1. **`read_messages` 结果清洗**（已完成，2026-08-29）：`src/operations/_message_parser.py` 实现纯函数清洗：①时间标签（`16:11`/`昨天18:20`/`星期一`/`2026-8-27`/`下午3:00`）正则识别后**保留为后续消息的 `time` 字段**（不再丢弃），一个时间戳对其后所有 live message 生效直到下一个时间戳；②折叠「聊天记录」卡片——从 `XX的聊天记录` 标题到裸 `聊天记录` 标签之间全部归 history，`Name:` 前缀行兼底兜底；③单字符且 height > 2×正常行高（排除单字块后的均值）的噪声过滤；④同气泡多行按 y 间距≤0.6 合并行高且 x 区间重叠合并（合并后气泡取首块 `time`）。端到端对「老妈」截图验证 13→3（消息带 `time`：老妈你回不回来吃饭/回来@16:11、发送消息测试@17:24）。`read_messages` 返回新增 `filtered` 统计与 `raw_ocr_blocks` 计数；`limit` 现作用于清洗后的 message；message 结构为 `{content, confidence, time}`，无前置时间戳时 `time=null`。测试 `tests/test_read_messages.py` 27 例（含真实 fixture `tests/fixtures/ocr_mama_chat.json`）。后截图见 `data/screenshots/wechat_1787823143301529300.png`，OCR dump 脚本 `scripts/dump_ocr.py`。
 
@@ -207,7 +207,9 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 
 6. ✅ **已完成（2026-08-29）**：`finder.py` 三处过时 docstring（模块头 / `FindTarget` 的 `Control-tree fields (preferred)` / `ControlTreeStrategy` 的 `Primary strategy`）已改为「视觉优先」措辞。按需补 `config/templates/` 模板仍待办。
 
-7. ✅ **已完成（2026-08-30）**：`src/mcp.py` SkillMcpFacade 已桥接到真实 OperationEngine。新增 `OperationEngineTransport`（`call_tool` 内 `OperationRegistry.get(name)` + `await engine.execute(op_class, params)`，OperationResult 序列化为 dict）；`build_default_facade(engine)` 注册 6 个 operation 为 tool（required_fields：send_message=[to,text]、send_file=[to,file_path]、broadcast_message=[targets,text]，open_chat/read_messages/list_sessions=[] 留给 operation 自校验别名）。链路改 **async**（engine 的 asyncio.Lock 绑定 uvicorn loop，同步阻塞会死锁）。新增 `POST /api/mcp/call` + `GET /api/mcp/tools` 路由；`await facade.call()` 跑在 uvicorn 同一 loop。端到端实测 `open_chat` 文件传输助手经 facade 返回 success（duration ~7.3s，含前后截图）。测试 test_mcp_proxy.py(4, async) + test_mcp_transport.py(4) + test_mcp_api.py(3)。
+7. ✅ **已完成（2026-08-30）**：`src/mcp.py` SkillMcpFacade 已桥接到真实 OperationEngine。新增 `OperationEngineTransport`（`call_tool` 内 `OperationRegistry.get(name)` + `await engine.execute(op_class, params)`，OperationResult 序列化为 dict）；`build_default_facade(engine)` 注册 6 个 operation 为 tool（required_fields：send_message=[to,text]、send_file=[to,file_path]、broadcast_message=[targets,text]，open_chat/read_messages/list_sessions=[] 留给 operation 自校验别名）。链路改 **async**（engine 的 asyncio.Lock 绑定 uvicorn loop，同步阻塞会死锁）。新增 `POST /api/mcp/call` + `GET /api/mcp/tools` 路由；`await facade.call()` 跑在 uvicorn 同一 loop。端到端实测 `open_chat` 文件传输助手经 facade 返回 success（duration ~7.3s）。测试 test_mcp_proxy.py(4, async) + test_mcp_transport.py(4) + test_mcp_api.py(3)。
+
+8. ✅ **已完成（2026-08-30）**：审计截图策略优化。之前 `base.py` 的 `pre_hook`/`post_hook` 无条件前后各落盘一张 PNG（每次操作 +2 张，只增不减，已堆 60 张/15MB）。改为：`pre_hook` 仅在 `audit_screenshot=always` 时截；`post_hook` 按 `on_fail`(默认，仅 FAILED 后截一张排错)/`always`/`off` 策略，**成功路径零落盘**。`screenshot.py` 新增 `prune()`，每次 `save()` 后按 mtime 仅保留 `rpa.screenshot_retention`（默认 50）张最新 `.png`，老的自动删。`config.yaml` 新增 `rpa.audit_screenshot=on_fail` 与 `rpa.screenshot_retention=50`。OCR/模板匹配用的**内存截图**（`controller.screenshot()`）不受影响，只改写盘审计截图。验证：on_fail 成功 0/失败 1；retention=3 连跑 6 次 always 自动收敛到 3 张；59 tests passed。
 
 ## 12. 已知坑 & 约束
 
@@ -219,7 +221,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 - **send_file 特征匹配**：特征库位于 `config/templates/wechat_file_button_features.npz`，只保存 SIFT 特征值，不保存原始图像。截图 ROI 使用窗口相对比例，匹配点通过 RANSAC 单应性变换计算按钮中心，点击前必须加上窗口左上角转换为屏幕绝对坐标。特征匹配不到时必须失败，不能回退到猜测坐标。
 - **搜索候选排序**：见 §7，联想项在联系人上方，必须「精确/最短优先」而非「最靠上」。
 - **Ctrl+F 假设**：open_chat 假设 Ctrl+F 是搜索快捷键，已在当前版本验证可用；微信改键位时这里会断。
-- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；`test_send_file.py` 覆盖特征匹配坐标和模型缺失保护；`test_read_messages.py` 27 例覆盖时间关联/卡片折叠/多行合并/噪声过滤；`test_list_sessions.py` 2 例覆盖会话去噪与分组；`test_broadcast.py` 11 例覆盖 targets 归一化/去重/None 安全 + 风控间隔规划。当前 `pytest tests/ -q` 已验证为 48 passed。
+- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；`test_send_file.py` 覆盖特征匹配坐标和模型缺失保护；`test_read_messages.py` 27 例覆盖时间关联/卡片折叠/多行合并/噪声过滤；`test_list_sessions.py` 2 例覆盖会话去噪与分组；`test_broadcast.py` 11 例覆盖 targets 归一化/去重/None 安全 + 风控间隔规划；`test_mcp_*.py` 11 例覆盖 facade 转发/transport 序列化/路由。当前 `pytest tests/ -q` 已验证为 59 passed。
 
 ## 13. 30 秒自检（接手后第一步）
 
@@ -230,7 +232,8 @@ curl -s http://127.0.0.1:9420/health
 #    调 open_chat 文件传输助手，看 status==success
 # 3. 测试还过不过
 python -m pytest tests/ -q
-# 4. read_messages 真实测试时，确认 status==success 并检查 screenshots[-1]
+# 4. read_messages 真实测试时，确认 status==success；默认 on_fail 下成功返回 screenshots 为空，
+#    如需肉眼校验用 GET /api/screenshot 现拍或 GET /api/debug/ocr 看气泡
 ```
 
 四项全绿 = open_chat / send_message 基线完好，read_messages 已完成结果清洗（§11.1），list_sessions 已完成去噪分组（§11.5），broadcast_message 已实现待真机验证（§11.2），可用。

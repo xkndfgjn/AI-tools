@@ -2,7 +2,7 @@
 
 本地常驻 HTTP 服务，将微信桌面版操作封装为 REST API，供 AI Agent 调用。
 
-> **当前状态**：架构已切换为**视觉优先**。新版微信（4.x，Qt 渲染）的 UIAutomation 控件树为空，已放弃控件树定位，改为 OCR（RapidOCR / PP-OCRv6，CPU，中文优先）+ 模板匹配 + 区域比例锚定。`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已验证可用，`broadcast_message` 群发已实现（默认短风控间隔）。AI 视觉兜底接口仍预留，暂未接入。新增 `src/mcp.py` 的 `SkillMcpFacade` 作为 agent 对外工具入口，已通过 `OperationEngineTransport` 桥接到真实 OperationEngine（6 个 operation 注册为 tool，`POST /api/mcp/call` 可调）。
+> **当前状态**：架构已切换为**视觉优先**。新版微信（4.x，Qt 渲染）的 UIAutomation 控件树为空，已放弃控件树定位，改为 OCR（RapidOCR / PP-OCRv6，CPU，中文优先）+ 模板匹配 + 区域比例锚定。`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已验证可用，`broadcast_message` 群发已实现（默认短风控间隔）。AI 视觉兜底接口仍预留，暂未接入。新增 `src/mcp.py` 的 `SkillMcpFacade` 作为 agent 对外工具入口，已通过 `OperationEngineTransport` 桥接到真实 OperationEngine（6 个 operation 注册为 tool，`POST /api/mcp/call` 可调）。审计截图默认 `on_fail`（仅失败后落盘一张排错，成功路径零落盘）并自动保留最近 50 张，避免磁盘累积。
 
 ## 快速开始
 
