@@ -16,6 +16,13 @@ rpa:
   ocr_engine: "rapidocr"      # was easyocr; RapidOCR (PP-OCRv6) ships Chinese+English by default
   template_threshold: 0.8
   action_delay_ms: 300
+  # Audit screenshots (the pre/post hooks in BaseOperation). OCR/template
+  # screenshots taken inside execute() stay in memory only and are not affected.
+  #   on_fail  - capture only after a FAILED operation (default; 0 writes on success)
+  #   always   - capture before and after every operation
+  #   off      - never capture for audit
+  audit_screenshot: "on_fail"
+  screenshot_retention: 50    # keep newest N .png files in screenshot_dir; older ones auto-deleted
   retry:
     max_attempts: 3
     backoff: 1.0

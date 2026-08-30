@@ -2,7 +2,7 @@
 
 > 面向接手本项目的 AI / 开发者。读完本文即可上手继续开发，无需重新摸索。
 
-最后更新：2026-08-29 · 阶段：**`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已端到端验证可用；`broadcast_message` 群发已实现（默认开启短风控间隔，纯函数单测覆盖） OCR 去噪与会话项分组，返回稳定结构 `{name, preview, time, source, confidence}`，已在侧边栏真实截图场景下稳定收敛。**send_file 使用纯 SIFT 特征值匹配，已在调整窗口尺寸后向「文件传输助手」和「老妈」真实发送图片成功；其余扩展项待验收/改造。新增 `src/mcp.py` 提供 `SkillMcpFacade`（agent 对外工具入口；已通过 `OperationEngineTransport` 桥接到真实 OperationEngine，6 个 operation 注册为 tool，`POST /api/mcp/call` 端到端验证 open_chat）；`finder.py` 三处过时 docstring 已清理。
+最后更新：2026-08-30 · 阶段：**`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已端到端验证可用；`broadcast_message` 群发已实现（默认开启短风控间隔，纯函数单测覆盖） OCR 去噪与会话项分组，返回稳定结构 `{name, preview, time, source, confidence}`，已在侧边栏真实截图场景下稳定收敛。**send_file 使用纯 SIFT 特征值匹配，已在调整窗口尺寸后向「文件传输助手」和「老妈」真实发送图片成功；其余扩展项待验收/改造。新增 `src/mcp.py` 提供 `SkillMcpFacade`（agent 对外工具入口；已通过 `OperationEngineTransport` 桥接到真实 OperationEngine，6 个 operation 注册为 tool，`POST /api/mcp/call` 端到端验证 open_chat）；`finder.py` 三处过时 docstring 已清理。**审计截图策略改为失败才截图（`rpa.audit_screenshot=on_fail`，默认）+ 保留最近 N 张自动清理（`rpa.screenshot_retention=50`），成功路径零落盘。**
 
 ---
 
@@ -40,7 +40,7 @@ RPA 层    src/rpa/
          ├─ controller.py      原子操作：找窗口/激活/点击/键盘/截图（全同步，asyncio.to_thread 调用）
          ├─ ocr_engine.py      RapidOCR 单例封装（核心）
          ├─ finder.py         策略链 finder（当前业务基本不直接用，见 §9）
-         ├─ screenshot.py      截图/保存
+         ├─ screenshot.py      截图/保存/自动清理（prune 保留最近 N 张）
          └─ watcher.py         窗口状态后台轮询
 配置     config/config.yaml     server / wechat / rpa / search / chat_region / finder / logging
 测试     tests/                 test_api.py(3) + test_open_chat.py(2) + test_send_file.py(3) + test_read_messages.py(27) + test_list_sessions.py(2) + test_broadcast.py(11) + test_mcp_proxy.py(4) + test_mcp_transport.py(4) + test_mcp_api.py(3) = 59 passed
@@ -189,7 +189,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 | `GET /api/mcp/tools` | 列出 Skill facade 注册的 MCP tool（6 个 operation） |
 | `POST /api/mcp/call` | 通过 facade 调工具：`{"tool":"...","params":{...}}`，内部桥接到 OperationEngine.execute；未知 tool 404、缺必填字段 400 |
 
-每个 operation 的 `run()` 会自动 `pre_hook`(前截图) + `execute` + `post_hook`(后截图)，截图存 `data/screenshots/`，路径挂在返回的 `screenshots` 里。**验证操作是否成功**：取 `screenshots[-1]`(后截图) OCR 看结果。
+每个 operation 的 `run()` 会自动 `pre_hook` + `execute` + `post_hook`。审计截图由 `rpa.audit_screenshot` 控制（`on_fail`默认：仅失败后截一张用于排错，成功路径零落盘；`always`：前后各截；`off`：不截）。截图存 `data/screenshots/`，路径挂在返回的 `screenshots` 里。每次落盘后自动清理，仅保留 `rpa.screenshot_retention`（默认 50）张最新的 `.png`。**验证操作是否成功**：失败时取 `screenshots[-1]` 排错；成功时 `screenshots` 为空。
 
 ## 11. 待办优先级（建议顺序）
 

@@ -54,9 +54,17 @@ class BaseOperation(ABC):
     2. Implement `execute(ctx, params) -> OperationResult`
 
     Optionally override:
-    - pre_hook(): pre-execution actions (default: screenshot)
-    - post_hook(): post-execution actions (default: screenshot + attach to result)
+    - pre_hook(): pre-execution actions (default: screenshot per audit policy)
+    - post_hook(): post-execution actions (default: screenshot per audit policy + attach to result)
     - Set requires_confirmation = True for human-in-the-loop operations
+
+    Audit screenshot policy is config-driven via ``rpa.audit_screenshot``:
+      - "on_fail" (default): capture only after a FAILED operation; the pre-state
+        is skipped because the post-failure screenshot is what you need to debug.
+      - "always": capture before and after every operation.
+      - "off": never capture for audit (OCR/template screenshots taken inside
+        execute() stay in memory only, never written to disk).
+    Old screenshots are pruned to ``rpa.screenshot_retention`` (default 50).
     """
 
     name: str = "base"
@@ -101,11 +109,19 @@ class BaseOperation(ABC):
         """
         ...
 
-    async def pre_hook(self, ctx: OperationContext, params: dict) -> None:
-        """Default: capture pre-execution screenshot for audit.
+    def _audit_policy(self, ctx: OperationContext) -> str:
+        """Return the audit screenshot policy: 'on_fail' | 'always' | 'off'."""
+        return str(ctx.config.get("rpa", {}).get("audit_screenshot", "on_fail")).lower()
 
-        Override to add validation, human confirmation checks, etc.
+    async def pre_hook(self, ctx: OperationContext, params: dict) -> None:
+        """Capture pre-execution screenshot only when policy is 'always'.
+
+        'on_fail' deliberately skips the pre-shot: the post-failure screenshot
+        is sufficient for debugging, and skipping halves the disk writes for
+        the common (success) path.
         """
+        if self._audit_policy(ctx) != "always":
+            return
         try:
             path = ctx.controller.save_screenshot()
             if path:
@@ -115,10 +131,18 @@ class BaseOperation(ABC):
 
     async def post_hook(self, ctx: OperationContext, params: dict,
                         result: OperationResult) -> None:
-        """Default: capture post-execution screenshot for audit.
+        """Capture post-execution screenshot per audit policy.
 
-        Override to add result verification, logging, etc.
+        - 'always': always capture.
+        - 'on_fail': capture only when the operation FAILED (the valuable case
+          for debugging; success path writes nothing).
+        - 'off': never capture.
         """
+        policy = self._audit_policy(ctx)
+        if policy == "off":
+            return
+        if policy == "on_fail" and result.status != OperationStatus.FAILED:
+            return
         try:
             path = ctx.controller.save_screenshot()
             if path:

@@ -50,4 +50,40 @@ class ScreenshotUtil:
         os.makedirs(self._screenshot_dir, exist_ok=True)
         path = filename if os.path.isabs(filename) else os.path.join(self._screenshot_dir, filename)
         cv2.imwrite(path, image)
+        self.prune()
         return path
+
+    def prune(self, keep: Optional[int] = None) -> int:
+        """Delete old screenshots, keeping only the newest ``keep`` files.
+
+        Files are sorted by mtime (newest first). Returns the number deleted.
+        ``keep`` defaults to ``rpa.screenshot_retention`` (50 if unset). A
+        non-positive value disables pruning.
+        """
+        if keep is None:
+            keep = int(self.config.get("rpa", {}).get("screenshot_retention", 50))
+        if keep <= 0:
+            return 0
+        if not os.path.isdir(self._screenshot_dir):
+            return 0
+        try:
+            files = [
+                f for f in os.listdir(self._screenshot_dir)
+                if f.lower().endswith(".png")
+                and os.path.isfile(os.path.join(self._screenshot_dir, f))
+            ]
+        except OSError:
+            return 0
+        if len(files) <= keep:
+            return 0
+        # Sort oldest first (so we delete from the front).
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(self._screenshot_dir, f)))
+        to_delete = files[: len(files) - keep]
+        deleted = 0
+        for f in to_delete:
+            try:
+                os.remove(os.path.join(self._screenshot_dir, f))
+                deleted += 1
+            except OSError:
+                pass
+        return deleted
