@@ -16,6 +16,7 @@ import io
 from .schemas import (
     ExecuteRequest, ExecuteResponse, HealthResponse,
     OperationsListResponse, OperationInfo, ScreenshotAnalyzeRequest,
+    McpCallRequest,
 )
 
 router = APIRouter()
@@ -24,14 +25,16 @@ router = APIRouter()
 _engine = None          # OperationEngine instance (controller + finder + executor)
 _config = None
 _logger = None
+_facade = None          # SkillMcpFacade instance (MCP tool entrypoint)
 
 
-def init_routes(engine, config, logger):
+def init_routes(engine, config, logger, facade=None):
     """Called from main.py to inject dependencies."""
-    global _engine, _config, _logger
+    global _engine, _config, _logger, _facade
     _engine = engine
     _config = config
     _logger = logger
+    _facade = facade
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -182,3 +185,35 @@ async def debug_ocr():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
+
+
+@router.get("/api/mcp/tools")
+async def mcp_tools():
+    """List MCP tools registered on the Skill facade."""
+    if _facade is None:
+        raise HTTPException(status_code=503, detail="MCP facade not initialized")
+    return {"tools": _facade.list_tools()}
+
+
+@router.post("/api/mcp/call")
+async def mcp_call(req: McpCallRequest):
+    """Invoke an MCP tool through the Skill facade.
+
+    Body: {"tool": "send_message", "params": {"to": "...", "text": "..."}}
+    The facade validates required fields, then the OperationEngineTransport
+    awaits OperationEngine.execute(op_class, params) on this event loop.
+    """
+    if _facade is None:
+        raise HTTPException(status_code=503, detail="MCP facade not initialized")
+    try:
+        resp = await _facade.call(req.tool, req.params)
+    except ValueError as e:
+        msg = str(e)
+        status_code = 404 if "Unknown operation/tool" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
+    return {
+        "ok": resp.ok,
+        "tool": resp.tool,
+        "result": resp.result,
+        "message": resp.message,
+    }

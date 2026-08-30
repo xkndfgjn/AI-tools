@@ -143,15 +143,9 @@ async def estimate_chat_region(ctx) -> Optional[Tuple[int, int, int, int]]:
 async def ocr_extract_text(image, ctx) -> list[dict]:
     """Extract all text from an image via the shared RapidOCR engine.
 
-    Returns [{text, confidence, center_x, center_y}].
+    Returns the full normalized item shape (text, confidence, box, center_x,
+    center_y, width, height) so callers that need geometry (e.g.
+    read_messages multi-line merge) have it; callers that only need text +
+    center simply ignore the extra fields.
     """
-    items = OcrEngine.get(ctx.config).extract(image)
-    return [
-        {
-            "text": it["text"],
-            "confidence": it["confidence"],
-            "center_x": it["center_x"],
-            "center_y": it["center_y"],
-        }
-        for it in items
-    ]
+    return OcrEngine.get(ctx.config).extract(image)

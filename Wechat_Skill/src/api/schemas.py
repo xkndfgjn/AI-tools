@@ -44,3 +44,9 @@ class OperationsListResponse(BaseModel):
 class ScreenshotAnalyzeRequest(BaseModel):
     """Request body for POST /api/screenshot/analyze."""
     prompt: str = Field(..., description="Question about the current WeChat screen")
+
+
+class McpCallRequest(BaseModel):
+    """Request body for POST /api/mcp/call."""
+    tool: str = Field(..., description="Tool name, e.g. 'send_message'")
+    params: dict = Field(default_factory=dict, description="Tool parameters")

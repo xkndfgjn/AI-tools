@@ -1,9 +1,16 @@
 """Element Finder - strategy-chain UI element location.
 
-Policy: control tree first, then template matching, then OCR, then AI vision.
-This matches the project decision to rely on UI Automation as the primary
-locator and fall back to computer vision only when the control tree is
-insufficient (e.g., self-drawn lists, dynamic text).
+Policy: vision-first. The configured chain (config `finder.strategy_chain`)
+defaults to ``template_match -> ocr``. The control-tree strategy is retained
+for legacy/old-WeChat compatibility but is OFF by default, because new Qt
+WeChat (4.x, class_name ``Qt51514QWindowIcon``) exposes an empty UIAutomation
+tree -- control-tree lookups always return empty.
+
+Note: business operations (open_chat / send_message / send_file /
+read_messages / list_sessions) do NOT use this finder directly. They use
+OcrEngine + explicit coordinate math, or SIFT feature matching (send_file).
+This module is the reserved interface for future generic FindTarget-based
+location.
 """
 from __future__ import annotations
 
@@ -29,7 +36,8 @@ except Exception:  # pragma: no cover
 class FindTarget:
     """Describes what to find on screen.
 
-    Control-tree fields (preferred):
+    Control-tree fields (legacy; unused on Qt WeChat where the control tree
+    is empty, but retained for old-WeChat compat):
         control_name: exact or substring match against Control.Name
         control_class: Control.ClassName
         control_type: Control.ControlTypeName, e.g. 'ListItemControl'
@@ -88,7 +96,9 @@ class FindStrategy(ABC):
 class ControlTreeStrategy(FindStrategy):
     """Find element via the UI Automation control tree.
 
-    Primary strategy: fast, precise, and independent of rendering.
+    Legacy strategy: kept for old-WeChat compat. On new Qt WeChat (4.x) the
+    control tree is empty, so this returns nothing and is OFF in the default
+    strategy chain (see config `finder.strategy_chain`).
     """
 
     name = "control_tree"

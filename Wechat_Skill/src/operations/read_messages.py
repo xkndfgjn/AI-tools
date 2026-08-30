@@ -6,6 +6,7 @@ import asyncio
 from .base import BaseOperation, OperationContext, OperationResult, OperationStatus
 from .registry import register_operation
 from ._helpers import open_chat, sleep_ms, estimate_chat_region, ocr_extract_text
+from ._message_parser import parse_messages
 
 
 @register_operation("read_messages")
@@ -36,17 +37,13 @@ class ReadMessagesOperation(BaseOperation):
             )
 
         screenshot = await asyncio.to_thread(ctx.controller.screenshot, region)
-        texts = await ocr_extract_text(screenshot, ctx)
+        raw_items = await ocr_extract_text(screenshot, ctx)
 
-        # Sort by vertical position (top -> bottom) to give messages in chronological order
-        texts.sort(key=lambda item: item["center_y"])
-
-        messages = []
-        for item in texts[-limit:]:
-            messages.append({
-                "content": item["text"],
-                "confidence": item["confidence"],
-            })
+        # Clean: drop time separators / folded chat-history card / noise and
+        # stitch multi-line bubbles. Then keep only the most recent `limit`.
+        messages, stats = parse_messages(raw_items)
+        if limit > 0:
+            messages = messages[-limit:]
 
         return OperationResult(
             status=OperationStatus.SUCCESS,
@@ -54,6 +51,12 @@ class ReadMessagesOperation(BaseOperation):
                 "chat": chat,
                 "messages": messages,
                 "count": len(messages),
+                "raw_ocr_blocks": len(raw_items),
+                "filtered": stats,
             },
-            message=f"Read {len(messages)} messages from '{chat}'",
+            message=(
+                f"Read {len(messages)} messages from '{chat}' "
+                f"(filtered {stats['time']} time, {stats['history']} history, "
+                f"{stats['noise']} noise from {len(raw_items)} OCR blocks)"
+            ),
         )

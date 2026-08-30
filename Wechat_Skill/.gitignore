@@ -6,4 +6,5 @@ __pycache__/
 venv/
 data/screenshots/
 data/logs/
+data/ocr_dump*.json
 *.log

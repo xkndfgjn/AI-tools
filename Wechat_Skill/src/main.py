@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Auto-load all operation modules to trigger @register_operation
 import src.operations  # noqa: F401
 from src.api.routes import router, init_routes
+from src.mcp import build_default_facade
 from src.operations.registry import OperationRegistry
 
 
@@ -145,8 +146,14 @@ def create_app() -> FastAPI:
     # Initialize engine
     engine = OperationEngine(config, lg)
 
-    # Wire routes
-    init_routes(engine, config, lg)
+    # Build MCP facade bridged to the real engine and register the 6 RPA
+    # operations as tools. The facade only stores the engine reference; it
+    # dispatches to engine.execute() at call time (after startup initializes
+    # the controller), so building it here is safe.
+    facade = build_default_facade(engine)
+
+    # Wire routes (facade exposes /api/mcp/call and /api/mcp/tools)
+    init_routes(engine, config, lg, facade)
     app.include_router(router)
 
     @app.on_event("startup")
@@ -154,6 +161,7 @@ def create_app() -> FastAPI:
         await engine.initialize()
         lg.info(f"WeChat RPA service started on {config.get('server', {}).get('host')}:{config.get('server', {}).get('port')}")
         lg.info(f"Registered operations: {[op['name'] for op in OperationRegistry.list_all()]}")
+        lg.info(f"MCP facade tools: {facade.list_tools()}")
 
     @app.on_event("shutdown")
     async def shutdown():
