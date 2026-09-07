@@ -1,0 +1,43 @@
+{
+  "stt": {
+    "model": "small",
+    "device": "auto",
+    "language": "zh",
+    "sample_rate": 16000,
+    "blocksize": 3200,
+    "input_device": null
+  },
+  "tts": {
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "rate": "+0%",
+    "volume": "+0%",
+    "output_device": null
+  },
+  "wake": {
+    "keyword_path": null,
+    "sensitivity": 0.5
+  },
+  "app": {
+    "listen_timeout": 8,
+    "silence_ratio": 1.2,
+    "response_timeout": 60,
+    "wake_retry_delay": 1.0
+  },
+  "pipeline": {
+    "burst_window": 2.5,
+    "queue_one_max": 50,
+    "queue_two_max": 20,
+    "poll_interval": 0.5,
+    "put_timeout": 1.0
+  },
+  "analyzer": {
+    "analyzer_mode": "rules",
+    "revision_words": ["算了", "等等", "不对", "不是", "取消", "换一个", "还是说"],
+    "chitchat_words": ["你好", "谢谢", "晚安", "再见"],
+    "danger_words": ["删除", "发送", "支付", "提交"],
+    "complex_words": ["分析", "对比", "方案", "总结", "解释"],
+    "default_effort": "medium",
+    "effort_bounds": { "minimal": 4, "low": 16, "medium": 60, "high": 200 },
+    "chitchat_max_len": 8
+  }
+}
