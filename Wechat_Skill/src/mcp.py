@@ -228,6 +228,9 @@ _DEFAULT_TOOL_SPECS: List[tuple] = [
     ("read_messages", "Read recent messages from a chat", []),
     ("list_sessions", "List recent chat sessions from the sidebar", []),
     ("broadcast_message", "Send the same text message to multiple contacts/groups", ["targets", "text"]),
+    ("find_wechat_file", "Search files received/sent via WeChat on local disk by name", ["keyword"]),
+    ("read_wechat_file", "Read text content of a file received via WeChat", ["path"]),
+    ("open_wechat_file", "Open a file received via WeChat with the system default app", ["path"]),
 ]
 
 

@@ -2,7 +2,7 @@
 
 > 面向接手本项目的 AI / 开发者。读完本文即可上手继续开发，无需重新摸索。
 
-最后更新：2026-08-30 · 阶段：**`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已端到端验证可用；`broadcast_message` 群发已实现（默认开启短风控间隔，纯函数单测覆盖） OCR 去噪与会话项分组，返回稳定结构 `{name, preview, time, source, confidence}`，已在侧边栏真实截图场景下稳定收敛。**send_file 使用纯 SIFT 特征值匹配，已在调整窗口尺寸后向「文件传输助手」和「老妈」真实发送图片成功；其余扩展项待验收/改造。新增 `src/mcp.py` 提供 `SkillMcpFacade`（agent 对外工具入口；已通过 `OperationEngineTransport` 桥接到真实 OperationEngine，6 个 operation 注册为 tool，`POST /api/mcp/call` 端到端验证 open_chat）；`finder.py` 三处过时 docstring 已清理。**审计截图策略改为失败才截图（`rpa.audit_screenshot=on_fail`，默认）+ 保留最近 N 张自动清理（`rpa.screenshot_retention=50`），成功路径零落盘。**
+最后更新：2026-09-13 · 阶段：**新增微信本地文件操作**：`find_wechat_file` / `read_wechat_file` / `open_wechat_file` 三个 operation（纯文件系统访问 4.x 的 `<files_root>/<wxid>/msg/file/<年月>/` 目录，原始文件名保留，可检索/读文本/默认程序打开），MCP facade 同步注册为 tool（共 9 个），真机验证通过（搜 884→读 txt→打开、搜 超越→7 个 PDF）。测试 83 passed。**此前阶段：**OCR 后端升级为微信原生 OCR（wxocr.dll）**：新增 `src/rpa/wechat_ocr.py`（后端：路径自动探测 `%APPDATA%\Tencent\xwechat\...\WeChatOcr\<最新>\extracted\wxocr.dll` + 微信版本目录；ndarray→临时文件→OCR→清理；标准化输出与 RapidOCR 一致）；`OcrEngine` 改为后端门面，`rpa.ocr_engine=auto`（默认 wechat 优先、rapidocr 兜底）；预编译 `wcocr.pyd` 入库并记录 SHA256 溯源（`src/rpa/vendor/wcocr/`）。实测微信聊天截图识别干净、零模型下载；新增 `tests/test_wechat_ocr.py` 8 例，共 67 passed。**此前阶段：**`open_chat` / `send_message` / `send_file` / `read_messages` / `list_sessions` 已端到端验证可用；`broadcast_message` 群发已实现（默认开启短风控间隔，纯函数单测覆盖） OCR 去噪与会话项分组，返回稳定结构 `{name, preview, time, source, confidence}`，已在侧边栏真实截图场景下稳定收敛。**send_file 使用纯 SIFT 特征值匹配，已在调整窗口尺寸后向「文件传输助手」和「老妈」真实发送图片成功；其余扩展项待验收/改造。新增 `src/mcp.py` 提供 `SkillMcpFacade`（agent 对外工具入口；已通过 `OperationEngineTransport` 桥接到真实 OperationEngine，9 个 operation 注册为 tool（含 3 个微信文件操作），`POST /api/mcp/call` 端到端验证 open_chat）；`finder.py` 三处过时 docstring 已清理。**审计截图策略改为失败才截图（`rpa.audit_screenshot=on_fail`，默认）+ 保留最近 N 张自动清理（`rpa.screenshot_retention=50`），成功路径零落盘。**
 
 ---
 
@@ -23,7 +23,7 @@
 
 ```
 HTTP 层   src/api/routes.py     /health /api/execute /api/operations /api/screenshot /api/debug/ocr ...
-MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManager（agent 对外工具入口；call() 唯一公开 API，call_tool() 故意 raise 强制走 facade；OperationEngineTransport 桥接到真实 OperationEngine，6 个 operation 注册为 tool；_DefaultMcpTransport no-op，测试用 FakeTransport）
+MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManager（agent 对外工具入口；call() 唯一公开 API，call_tool() 故意 raise 强制走 facade；OperationEngineTransport 桥接到真实 OperationEngine，9 个 operation 注册为 tool（含 3 个微信文件操作）；_DefaultMcpTransport no-op，测试用 FakeTransport）
 引擎层   src/main.py           OperationEngine: 加载 config / 初始化 controller+finder+watcher / 串行锁执行
 操作层   src/operations/        每个 operation = 一个类 + @register_operation，自动发现
          ├─ contacts.py        open_chat, list_sessions
@@ -31,6 +31,7 @@ MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManage
          ├─ broadcast_message.py  群发：多目标串行 + 风控间隔（_broadcast.py 纯函数）
          ├─ read_messages.py
          ├─ send_file.py
+         ├─ wechat_files.py  find_wechat_file / read_wechat_file / open_wechat_file（本地文件检索/读文本/打开，纯文件系统）
          ├─ _helpers.py        open_chat(核心) / estimate_chat_region / ocr_extract_text / sleep_ms
          ├─ _message_parser.py  read_messages 清洗：时间戳关联为消息 time 字段 / 系统 / 聊天记录卡片 / 噪声过滤 + 多行气泡合并（纯函数，单测覆盖）
          ├─ _broadcast.py       broadcast_message 纯函数：targets 归一化/去重 + 风控间隔规划（单测覆盖）
@@ -38,12 +39,14 @@ MCP 层   src/mcp.py            SkillMcpFacade / ToolRegistry / McpSessionManage
          └─ registry.py        @register_operation
 RPA 层    src/rpa/
          ├─ controller.py      原子操作：找窗口/激活/点击/键盘/截图（全同步，asyncio.to_thread 调用）
-         ├─ ocr_engine.py      RapidOCR 单例封装（核心）
+         ├─ ocr_engine.py      OCR 门面：按 config 选后端 wechat/rapidocr/auto（默认 wechat 优先）
+         ├─ wechat_ocr.py      微信原生 OCR 后端（wxocr.dll：路径自动探测 + ndarray→临时文件 + 标准化输出）
+         ├─ vendor/wcocr/      预编译 wcocr.pyd（微信 OCR 桥，README 含 SHA256 溯源）
          ├─ finder.py         策略链 finder（当前业务基本不直接用，见 §9）
          ├─ screenshot.py      截图/保存/自动清理（prune 保留最近 N 张）
          └─ watcher.py         窗口状态后台轮询
-配置     config/config.yaml     server / wechat / rpa / search / chat_region / finder / logging
-测试     tests/                 test_api.py(3) + test_open_chat.py(2) + test_send_file.py(3) + test_read_messages.py(27) + test_list_sessions.py(2) + test_broadcast.py(11) + test_mcp_proxy.py(4) + test_mcp_transport.py(4) + test_mcp_api.py(3) = 59 passed
+配置     config/config.yaml     server / wechat / rpa(ocr_engine/wechat_ocr/audit_screenshot/screenshot_retention) / search / chat_region / finder / logging
+测试     tests/                 test_api.py(3) + test_open_chat.py(2) + test_send_file.py(3) + test_read_messages.py(27) + test_list_sessions.py(2) + test_broadcast.py(11) + test_mcp_proxy.py(4) + test_mcp_transport.py(4) + test_mcp_api.py(3) + test_wechat_ocr.py(8) + test_wechat_files.py(16) = 83 passed
 ```
 
 ## 4. 运行
@@ -96,6 +99,9 @@ print(json.loads(urllib.request.urlopen(req, timeout=90).read().decode("utf-8"))
 | `read_messages` | ✅ **已清洗可用** | 已对「老妈」真实读取并完成结果清洗：时间标签不再丢弃而是关联为后续消息的 `time` 字段（如 `16:11`/`昨天18:20`，一个时间戳对其后所有 live message 生效直到下一个时间戳）/ 折叠「聊天记录」卡片 / 单字噪声过滤，并按 y 间距+x 重叠合并多行气泡。2026-08-29 端到端验证 13 块 OCR → 3 条真实消息（老妈你回不回来吃饭@16:11 → 回来@16:11 → 发送消息测试@17:24），无时间/历史/噪声泄漏。message 结构为 `{content, confidence, time}`，无前置时间戳时 `time=null`。清洗逻辑在 `src/operations/_message_parser.py`（纯函数）。 |
 | `send_file` | ✅ **纯特征值匹配，已端到端验证** | 先恢复并确认微信前台，再从当前窗口截图底部工具栏 ROI 中加载 `config/templates/wechat_file_button_features.npz` 的 SIFT 特征值，使用 BFMatcher/KNN 比率筛选和 RANSAC 单应性计算按钮中心，再将窗口局部坐标转换为屏幕绝对坐标点击。完全不使用 OCR 或固定比例兜底；特征匹配失败直接停止，避免把路径发成文字。已在窗口尺寸调整后向「文件传输助手」和「老妈」发送 JPG 成功。 |
 | `list_sessions` | ✅ **已稳定化** | 直接 OCR 左侧栏；已按 y 方向分组会话项，过滤固定标签/时间/系统噪声，并返回稳定结构 `{name, preview, time, source, confidence}`。 |
+| `find_wechat_file` | ✅ **已实现并真机验证** | 按文件名子串（大小写不敏感）搜微信本地文件（`wechat.files_root` 自动探测 `D:\\xwechat_files` 等；4.x 原始文件名保留）。返回 `{path, name, size, modified_at, dir}`，按修改时间倒序，`max_results` 上限 50。纯文件系统，不碰数据库/Hook。 |
+| `read_wechat_file` | ✅ **已实现并真机验证** | 读文本文件前 `limit` 行（默认 200，上限 2000），编码 utf-8→gbk→latin-1 容错，超长行截断。仅文本扩展名白名单（txt/md/csv/json/log/py...），二进制提示改用 open。`path` 或 `keyword`（取最新命中）二选一。 |
+| `open_wechat_file` | ✅ **已实现并真机验证** | `os.startfile` 用系统默认程序打开，`path` 或 `keyword` 二选一。真机：打开 `884信号与系统_Anki导入.txt` 成功（~60ms）。 |
 | `broadcast_message` | ✅ **已实现（未真机端到端）** | 串行 `open_chat + type + Enter` 逐个发送，默认开启短风控间隔（`interval_ms=500` + `jitter_ms=300` 抖动，最后一条不等）。参数：`targets`(list 或单 str，自动去重保序)/`text`/`interval_ms`/`jitter_ms`/`max_targets`(>0 上限保护)/`stop_on_fail`。返回 `sent`/`failed`/`count`/`total`/`partial`。纯函数 `normalize_targets`/`plan_delays` 单测覆盖；待真机多联系人实测。 |
 
 ## 7. open_chat 核心流程（已验证，改它要懂这套）
@@ -143,10 +149,11 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 ## 9. 关键模块细节
 
 ### OcrEngine（`src/rpa/ocr_engine.py`，核心）
-- 进程级单例：`OcrEngine.get(config)`，`.reset()` 清除（测试用）。
-- `engine.extract(image) -> list[dict]`，image 可为 ndarray / 文件路径。
-- 返回项：`{text, confidence, box:[[x,y]×4角], center_x, center_y, width, height}`。无文字时返回 `[]`。
-- 底层 RapidOCR（PP-OCRv6，CPU，onnxruntime），中文识别置信度 0.99+。模型在 `D:\python3.11\Lib\site-packages\rapidocr\models\`。
+- 进程级单例：`OcrEngine.get(config)`，`.reset()` 清除（测试用，会同时销毁微信 OCR 子进程）。
+- 后端选择（`config['rpa']['ocr_engine']`）：`wechat`（微信原生 wxocr.dll）/ `rapidocr`（PP-OCRv6）/ `auto`（默认：wechat 优先，不可用回退 rapidocr）。`backend_name` 属性可查当前生效后端。
+- `engine.extract(image) -> list[dict]`，image 为 BGR ndarray。返回项：`{text, confidence, box:[[x,y]×4角], center_x, center_y, width, height}`。无文字时返回 `[]`。
+- **wechat 后端**（`src/rpa/wechat_ocr.py`）：调用微信自带离线 OCR 引擎 `wxocr.dll`（经预编译 `wcocr.pyd`，见 `src/rpa/vendor/wcocr/README.md` 溯源）。路径自动探测：`%APPDATA%\Tencent\xwechat\XPlugin\Plugins\WeChatOcr\<最新版本>\extracted\wxocr.dll` + 微信版本目录（含 `mmmojo_64.dll`，如 `D:\Weixin\4.1.12.55`）；也可在 config `rpa.wechat_ocr.wxocr_dll/wechat_dir` 显式指定。`extract()` 内部 ndarray→临时 PNG→`wcocr.ocr()`→清理；OCR 子进程启动一次常驻，`reset()`/退出时 `wcocr.destroy()`。实测：会话名/气泡识别干净、零模型下载；小字号时间戳识别弱于 RapidOCR，二者互为兜底。
+- **rapidocr 后端**：RapidOCR（PP-OCRv6，CPU，onnxruntime），中文识别置信度 0.99+。模型在 `D:\python3.11\Lib\site-packages\rapidocr\models\`。
 
 ### RpaController（`src/rpa/controller.py`）
 - 全部方法**同步阻塞**，async 上下文用 `await asyncio.to_thread(controller.xxx, ...)` 调。
@@ -164,7 +171,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 - `SkillMcpFacade.call(tool_name, params) -> ToolResponse{ok, tool, result, message}` 是 agent 调用工具的**唯一公开 API**，**async**（桥接到 async OperationEngine）。构造时自动 `connect(session_id="skill-facade")`。
 - `call_tool()` 方法被故意 `raise RuntimeError("Skill facade blocks direct MCP tool access...")`，强制走 facade 边界。
 - `OperationEngineTransport(engine)` 是真实传输：`async call_tool(name, params)` 内 `OperationRegistry.get(name)` 取 operation 类，`await engine.execute(op_class, params)`，`OperationResult` 经 `_operation_result_to_dict` 序列化为 `{status,data,message,screenshots,duration_ms}`。未知 tool `raise ValueError("Unknown operation/tool: '...'")`。
-- `build_default_facade(engine)` 工厂注册 6 个 operation 为 tool（`_register_default_tools`）。required_fields：`send_message`=[to,text]、`send_file`=[to,file_path]、`broadcast_message`=[targets,text]；`open_chat`(name/to/chat 别名)、`read_messages`(chat/to)、`list_sessions` 为 [] 留给 operation 自校验。
+- `build_default_facade(engine)` 工厂注册 6 个 operation 为 tool（`_register_default_tools`）。required_fields：`send_message`=[to,text]、`send_file`=[to,file_path]、`broadcast_message`=[targets,text]、`find_wechat_file`=[keyword]、`read_wechat_file`=[path]、`open_wechat_file`=[path]；`open_chat`(name/to/chat 别名)、`read_messages`(chat/to)、`list_sessions` 为 [] 留给 operation 自校验（read/open_wechat_file 的 operation 层仍支持 keyword 别名，MCP 层要求 path）。
 - `ToolRegistry.validate()` 校验必填字段，缺则 `ValueError: Tool '...' missing required fields: [...]`；未知 tool 静默放行，在 transport 报 ValueError。
 - `McpSessionManager` 管理 connect/disconnect/`call_tool`（未 connect 时 `RuntimeError: MCP session is not connected`）；`McpConnectionState` 暴露 `connected/session_id/last_error/tool_count`。`_DefaultMcpTransport` 仍是 no-op，供测试/脚手架使用。
 - **HTTP 入口**：`POST /api/mcp/call` `{"tool","params"}` -> `await facade.call()`（跑 uvicorn loop）；`GET /api/mcp/tools` 列已注册 tool。未知 tool -> 404，缺必填字段 -> 400。使用示例见 §5（把 `operation` 换成 `tool`、路径 `/api/mcp/call`）。
@@ -193,7 +200,7 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 
 ## 11. 待办优先级（建议顺序）
 
-> **当前未完成**：§11.2 `broadcast_message` 真机多目标端到端验证、§11.3 `send_message` 发送后结果校验。其余均已完成（§11.6 finder docstring 清理、§11.7 mcp facade 桥接、§11.8 审计截图策略优化均已完成）。
+> **当前未完成**：§11.2 `broadcast_message` 真机多目标端到端验证、§11.3 `send_message` 发送后结果校验。其余均已完成（§11.6 finder docstring 清理、§11.7 mcp facade 桥接、§11.8 审计截图策略优化、§11.9 微信原生 OCR 后端、§11.10 微信本地文件操作均已完成）。
 
 1. **`read_messages` 结果清洗**（已完成，2026-08-29）：`src/operations/_message_parser.py` 实现纯函数清洗：①时间标签（`16:11`/`昨天18:20`/`星期一`/`2026-8-27`/`下午3:00`）正则识别后**保留为后续消息的 `time` 字段**（不再丢弃），一个时间戳对其后所有 live message 生效直到下一个时间戳；②折叠「聊天记录」卡片——从 `XX的聊天记录` 标题到裸 `聊天记录` 标签之间全部归 history，`Name:` 前缀行兼底兜底；③单字符且 height > 2×正常行高（排除单字块后的均值）的噪声过滤；④同气泡多行按 y 间距≤0.6 合并行高且 x 区间重叠合并（合并后气泡取首块 `time`）。端到端对「老妈」截图验证 13→3（消息带 `time`：老妈你回不回来吃饭/回来@16:11、发送消息测试@17:24）。`read_messages` 返回新增 `filtered` 统计与 `raw_ocr_blocks` 计数；`limit` 现作用于清洗后的 message；message 结构为 `{content, confidence, time}`，无前置时间戳时 `time=null`。测试 `tests/test_read_messages.py` 27 例（含真实 fixture `tests/fixtures/ocr_mama_chat.json`）。后截图见 `data/screenshots/wechat_1787823143301529300.png`，OCR dump 脚本 `scripts/dump_ocr.py`。
 
@@ -211,17 +218,22 @@ screen_y = window_top  + res_top(box_h) + ocr_center_y
 
 8. ✅ **已完成（2026-08-30）**：审计截图策略优化。之前 `base.py` 的 `pre_hook`/`post_hook` 无条件前后各落盘一张 PNG（每次操作 +2 张，只增不减，已堆 60 张/15MB）。改为：`pre_hook` 仅在 `audit_screenshot=always` 时截；`post_hook` 按 `on_fail`(默认，仅 FAILED 后截一张排错)/`always`/`off` 策略，**成功路径零落盘**。`screenshot.py` 新增 `prune()`，每次 `save()` 后按 mtime 仅保留 `rpa.screenshot_retention`（默认 50）张最新 `.png`，老的自动删。`config.yaml` 新增 `rpa.audit_screenshot=on_fail` 与 `rpa.screenshot_retention=50`。OCR/模板匹配用的**内存截图**（`controller.screenshot()`）不受影响，只改写盘审计截图。验证：on_fail 成功 0/失败 1；retention=3 连跑 6 次 always 自动收敛到 3 张；59 tests passed。
 
+9. ✅ **已完成（2026-09-13）**：OCR 后端升级为微信原生 OCR（wxocr.dll）。新增 `src/rpa/wechat_ocr.py`（后端：自动探测 `%APPDATA%\Tencent\xwechat\XPlugin\Plugins\WeChatOcr\<最新>\extracted\wxocr.dll` + 微信版本目录如 `D:\Weixin\4.1.12.55`；ndarray→临时 PNG→`wcocr.ocr()`→清理；输出标准化为 `{text, confidence, box, center_x, center_y, width, height}`）。`OcrEngine` 改为后端门面（`rpa.ocr_engine=auto`：wechat 优先，不可用回退 rapidocr；`backend_name` 可查）。预编译 `wcocr.pyd` 入库 `src/rpa/vendor/wcocr/` 并记录 SHA256 溯源（README）。真机对比：会话名/气泡识别干净、零模型下载；小字号时间戳弱于 RapidOCR，互为兜底。测试 test_wechat_ocr.py 8 例。
+10. ✅ **已完成（2026-09-13）**：微信本地文件操作。新增 `src/operations/wechat_files.py` 三个 operation：`find_wechat_file`（按文件名子串检索 `<files_root>/<wxid>/msg/file/<年月>/`，原始文件名保留，最新优先，max_results 上限 50）/ `read_wechat_file`（读文本前 limit 行，utf-8→gbk→latin-1 容错，文本扩展名白名单，path 或 keyword）/ `open_wechat_file`（os.startfile 默认程序，path 或 keyword）。根目录自动探测（`D:\xwechat_files` / `<USERPROFILE>\Documents\xwechat_files`），config `wechat.files_root` 显式覆盖且严格（配错不回退）。纯文件系统，不碰数据库/Hook。MCP facade 注册为 tool（共 9 个）。真机验证：搜 884→读 80 行 Anki 卡片→打开；搜 超越→7 个 PDF。测试 test_wechat_files.py 16 例。
+
 ## 12. 已知坑 & 约束
 
 - **Windows bash 中文**：见 §5，curl 不可用，用 Python urllib。
 - **坐标**：模板匹配返回的是窗口截图内的局部坐标，点击前务必换算成屏幕绝对（窗口左上 + ROI 偏移 + 模板中心）。换算错就点错地方。
 - **窗口可被移动**：每次操作前 `activate_window` + `get_window_rect` 重新拿坐标，别缓存 rect。
-- **首次 OCR 慢**：模型首次加载 1–2s，API 超时给足（urllib `timeout=90`）。
+- **首次 OCR 慢**：模型/子进程首次初始化 1–2s，API 超时给足（urllib `timeout=90`）。
+- **微信本地文件（find/read/open_wechat_file）**：依赖 `wechat.files_root`（自动探测 `D:\xwechat_files` / `<USERPROFILE>\Documents\xwechat_files`；显式配置路径不存在时严格报错不回退）。4.x 文件保留原始文件名可检索；图片/加密缓存（.dat）不在本模块范围。
+- **微信原生 OCR（wxocr.dll）**：路径依赖微信安装（自动探测 `%APPDATA%\Tencent\xwechat\...\WeChatOcr\<ver>\extracted\wxocr.dll` + 微信版本目录）。微信更新后版本号变化会被自动探测到；非标准安装用 config `rpa.wechat_ocr` 显式指定。`wcocr.pyd` 为预编译第三方二进制，SHA256 记录在 `src/rpa/vendor/wcocr/README.md`。
 - **控件树不可用**：别再指望 `find_control`；`open_chat` 等动态文本操作仍走 OCR，但 `send_file` 文件图标完全走模板匹配，不走 OCR。
 - **send_file 特征匹配**：特征库位于 `config/templates/wechat_file_button_features.npz`，只保存 SIFT 特征值，不保存原始图像。截图 ROI 使用窗口相对比例，匹配点通过 RANSAC 单应性变换计算按钮中心，点击前必须加上窗口左上角转换为屏幕绝对坐标。特征匹配不到时必须失败，不能回退到猜测坐标。
 - **搜索候选排序**：见 §7，联想项在联系人上方，必须「精确/最短优先」而非「最靠上」。
 - **Ctrl+F 假设**：open_chat 假设 Ctrl+F 是搜索快捷键，已在当前版本验证可用；微信改键位时这里会断。
-- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；`test_send_file.py` 覆盖特征匹配坐标和模型缺失保护；`test_read_messages.py` 27 例覆盖时间关联/卡片折叠/多行合并/噪声过滤；`test_list_sessions.py` 2 例覆盖会话去噪与分组；`test_broadcast.py` 11 例覆盖 targets 归一化/去重/None 安全 + 风控间隔规划；`test_mcp_*.py` 11 例覆盖 facade 转发/transport 序列化/路由。当前 `pytest tests/ -q` 已验证为 59 passed。
+- **测试**：`test_open_chat.py` 用合成图 + 真 OcrEngine 测候选选择逻辑；`test_send_file.py` 覆盖特征匹配坐标和模型缺失保护；`test_read_messages.py` 27 例覆盖时间关联/卡片折叠/多行合并/噪声过滤；`test_list_sessions.py` 2 例覆盖会话去噪与分组；`test_broadcast.py` 11 例覆盖 targets 归一化/去重/None 安全 + 风控间隔规划；`test_mcp_*.py` 11 例覆盖 facade 转发/transport 序列化/路由；`test_wechat_ocr.py` 8 例覆盖 wcocr 结果标准化（errcode/空响应/坏坐标/空白文本跳过）与版本号排序。当前 `pytest tests/ -q` 已验证为 83 passed（新增 test_wechat_files.py 16 例：根目录探测/config 严格模式/msg-file 目录过滤/文件名检索排序/文本扩展名/编码容错与截断）。
 
 ## 13. 30 秒自检（接手后第一步）
 

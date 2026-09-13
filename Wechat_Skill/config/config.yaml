@@ -9,11 +9,23 @@ wechat:
   version: "4.1.x"
   # NOTE: Qt-rendered WeChat exposes NO UIAutomation control tree.
   # All element location is vision-based (OCR + templates).
+  # Local store of files received/sent via WeChat (4.x: <wxid>/msg/file/<YYYY-MM>/).
+  # Empty = auto-discover (D:\xwechat_files, <USERPROFILE>\Documents\xwechat_files, ...).
+  files_root: ""
 
 rpa:
   screenshot_dir: "./data/screenshots"
   template_dir: "./config/templates"
-  ocr_engine: "rapidocr"      # was easyocr; RapidOCR (PP-OCRv6) ships Chinese+English by default
+  # OCR backend: "wechat" (WeChat native wxocr.dll, best on chat content,
+  # requires WeChat 4.x installed) | "rapidocr" (PP-OCRv6) | "auto"
+  # (default: wechat first, falls back to rapidocr if unavailable).
+  ocr_engine: "auto"
+  # WeChat native OCR paths. Empty = auto-discover (newest wxocr.dll under
+  # %APPDATA%\Tencent\xwechat\...; WeChat version dir containing
+  # mmmojo_64.dll). Set explicitly for non-standard installs.
+  wechat_ocr:
+    wxocr_dll: ""
+    wechat_dir: ""
   template_threshold: 0.8
   action_delay_ms: 300
   # Audit screenshots (the pre/post hooks in BaseOperation). OCR/template

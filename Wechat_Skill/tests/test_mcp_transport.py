@@ -58,7 +58,7 @@ def test_transport_unknown_tool_raises():
         asyncio.run(transport.call_tool("nope", {}))
 
 
-def test_build_default_facade_registers_six_tools():
+def test_build_default_facade_registers_nine_tools():
     facade = build_default_facade(FakeEngine())
     assert set(facade.list_tools()) == {
         "open_chat",
@@ -67,6 +67,9 @@ def test_build_default_facade_registers_six_tools():
         "read_messages",
         "list_sessions",
         "broadcast_message",
+        "find_wechat_file",
+        "read_wechat_file",
+        "open_wechat_file",
     }
 
 

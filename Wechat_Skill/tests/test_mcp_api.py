@@ -12,7 +12,7 @@ def _client():
     return TestClient(app)
 
 
-def test_mcp_tools_lists_six():
+def test_mcp_tools_lists_nine():
     resp = _client().get("/api/mcp/tools")
     assert resp.status_code == 200
     tools = set(resp.json()["tools"])
@@ -23,6 +23,9 @@ def test_mcp_tools_lists_six():
         "read_messages",
         "list_sessions",
         "broadcast_message",
+        "find_wechat_file",
+        "read_wechat_file",
+        "open_wechat_file",
     }
 
 

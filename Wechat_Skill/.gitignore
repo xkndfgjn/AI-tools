@@ -8,3 +8,4 @@ data/screenshots/
 data/logs/
 data/ocr_dump*.json
 *.log
+.local/agent-work/

@@ -1,16 +1,17 @@
-"""RapidOCR engine wrapper - shared singleton for finder and operations.
+"""OCR engine facade - shared singleton for finder and operations.
 
-Replaces EasyOCR. Reasons:
-- Better Chinese recognition (PP-OCRv6 models by default).
-- CPU-only via onnxruntime, no torch dependency, lighter install.
-- Faster on small image regions.
+Backend selection is config-driven (``config['rpa']['ocr_engine']``):
 
-The underlying RapidOCR instance is lazy-initialized once (it loads/downloads
-ONNX models on first use). Both the finder strategies and the operation
-helpers consume the same normalized dict output so the OCR backend can be
-swapped without touching call sites.
+- ``wechat``  - WeChat's own native OCR engine (wxocr.dll via wcocr.pyd).
+                Best quality on chat content; zero model download; requires
+                WeChat 4.x installed. See src/rpa/wechat_ocr.py.
+- ``rapidocr`` - RapidOCR (PP-OCRv6, CPU/onnxruntime). Fallback that works
+                without WeChat installed.
+- ``auto`` (default) - try ``wechat`` first, fall back to ``rapidocr``.
 
-Output item shape:
+All backends expose the same normalized dict output so finder strategies and
+operation helpers never change:
+
     {
         "text": str,
         "confidence": float,
@@ -33,9 +34,11 @@ except Exception:  # pragma: no cover - rapidocr is optional at import time
     RapidOCR = None  # type: ignore
     _RAPID_AVAILABLE = False
 
+from .wechat_ocr import WeChatOcrBackend
+
 
 class OcrEngine:
-    """Lazy singleton wrapping RapidOCR.
+    """Lazy singleton selecting an OCR backend from config.
 
     Usage:
         engine = OcrEngine.get(config)
@@ -48,7 +51,7 @@ class OcrEngine:
 
     def __init__(self, config: Optional[dict] = None):
         self.config = config or {}
-        self._engine: Any = None   # RapidOCR instance, or False if unavailable
+        self._engine: Any = None       # backend instance, or False if unavailable
         self._initialized = False
 
     @classmethod
@@ -62,31 +65,80 @@ class OcrEngine:
 
     @classmethod
     def reset(cls) -> None:
-        """Drop the singleton (mainly for tests / config reload)."""
+        """Drop the singleton (mainly for tests / config reload).
+
+        Also tears down the WeChat OCR sub-process if it was initialized.
+        """
         with cls._lock:
+            WeChatOcrBackend.reset()
             cls._instance = None
 
+    @property
+    def backend_name(self) -> str:
+        """Name of the currently active backend ('wechat'/'rapidocr'/None)."""
+        eng = self._ensure()
+        if eng is False:
+            return "none"
+        if isinstance(eng, WeChatOcrBackend):
+            return "wechat"
+        return "rapidocr"
+
+    def _preferred(self) -> str:
+        return str(self.config.get("rpa", {}).get("ocr_engine", "auto")).lower()
+
     def _ensure(self):
-        """Initialize the RapidOCR engine on first use. Returns the engine or False."""
+        """Initialize the configured backend on first use.
+
+        Returns the backend instance, or False when none is available.
+        """
         if self._initialized:
             return self._engine
         self._initialized = True
-        if not _RAPID_AVAILABLE:
-            self._engine = False
+
+        preferred = self._preferred()
+        chain = []
+        if preferred == "wechat":
+            chain = ["wechat"]
+        elif preferred == "rapidocr":
+            chain = ["rapidocr"]
+        else:  # auto
+            chain = ["wechat", "rapidocr"]
+
+        for name in chain:
+            eng = self._build(name)
+            if eng is not False:
+                self._engine = eng
+                return eng
+        self._engine = False
+        return False
+
+    def _build(self, name: str):
+        """Build one backend by name; return False when unavailable."""
+        if name == "wechat":
+            try:
+                backend = WeChatOcrBackend.get(self.config)
+            except Exception:
+                return False
+            if backend.available:
+                return backend
             return False
-        try:
-            self._engine = RapidOCR()
-        except Exception:
-            self._engine = False
-        return self._engine
+        if name == "rapidocr":
+            if not _RAPID_AVAILABLE:
+                return False
+            try:
+                return RapidOCR()
+            except Exception:
+                return False
+        return False
 
     @property
     def available(self) -> bool:
-        """True if the OCR engine initialized successfully."""
+        """True if an OCR backend initialized successfully."""
         return self._ensure() is not False
 
     def extract(self, image) -> list[dict]:
-        """Run OCR on an image (ndarray / file path / URL).
+        """Run OCR on an image (BGR ndarray; also accepts file path/URL on
+        the rapidocr backend).
 
         Returns a list of normalized item dicts (see module docstring).
         Returns [] on failure or when no text is found.
@@ -94,6 +146,16 @@ class OcrEngine:
         eng = self._ensure()
         if eng is False:
             return []
+        try:
+            if isinstance(eng, WeChatOcrBackend):
+                return eng.extract(image)
+            return self._extract_rapid(eng, image)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _extract_rapid(eng, image) -> list[dict]:
+        """Run the RapidOCR engine and normalize its output."""
         try:
             result = eng(image)
         except Exception:
